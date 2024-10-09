@@ -17,4 +17,4 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - run: npx pkg-pr-new publish --json
+      - run: npx pkg-pr-new publish --json=test.json

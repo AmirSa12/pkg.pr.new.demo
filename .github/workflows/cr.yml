@@ -20,7 +20,7 @@ jobs:
       - name: Publish packages
         run: npx pkg-pr-new publish --json output.json --comment=off
 
-      - name: Post custom comment
+      - name: Post custom comment (Pull Request)
         if: github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -37,4 +37,23 @@ jobs:
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/$repo_full_name/issues/$pr_number/comments \
+            -d "{\"body\":\"$body\"}"
+
+      - name: Post custom comment (Push)
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          output=$(cat output.json)
+          packages=$(echo "$output" | jq -r '.packages[] | "- \(.name): \(.url)"' | sed -z 's/\n/\\n/g')
+          templates=$(echo "$output" | jq -r '.templates[] | "- [\(.name)](\(.url))"' | sed -z 's/\n/\\n/g')
+          body="## Custom Publish Message\n\n### Published Packages:\n\n$packages\n\n### Templates:\n\n$templates"
+
+          commit_sha=${{ github.sha }}
+          repo_full_name=${{ github.repository }}
+
+          curl -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/$repo_full_name/commits/$commit_sha/comments \
             -d "{\"body\":\"$body\"}"

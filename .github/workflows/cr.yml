@@ -48,17 +48,23 @@ jobs:
 
             const botCommentIdentifier = '## Custom Publish Message';
 
-            async function findBotComment() {
+            async function findBotComment(issueNumber) {
+              if (!issueNumber) return null;
               const comments = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number
+                issue_number: issueNumber
               });
               return comments.data.find(comment => comment.body.includes(botCommentIdentifier));
             }
 
-            if (context.eventName === 'pull_request') {
-              const existingComment = await findBotComment();
+            async function createOrUpdateComment(issueNumber) {
+              if (!issueNumber) {
+                console.log('No issue number provided. Cannot post or update comment.');
+                return;
+              }
+              
+              const existingComment = await findBotComment(issueNumber);
               if (existingComment) {
                 await github.rest.issues.updateComment({
                   owner: context.repo.owner,
@@ -68,12 +74,16 @@ jobs:
                 });
               } else {
                 await github.rest.issues.createComment({
-                  issue_number: context.issue.number,
+                  issue_number: issueNumber,
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   body: body
                 });
               }
+            }
+
+            if (context.eventName === 'pull_request') {
+              await createOrUpdateComment(context.issue.number);
             } else if (context.eventName === 'push') {
               const pullRequests = await github.rest.pulls.list({
                 owner: context.repo.owner,
@@ -83,23 +93,7 @@ jobs:
               });
               
               if (pullRequests.data.length > 0) {
-                const pr = pullRequests.data[0];
-                const existingComment = await findBotComment();
-                if (existingComment) {
-                  await github.rest.issues.updateComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    comment_id: existingComment.id,
-                    body: body
-                  });
-                } else {
-                  await github.rest.issues.createComment({
-                    issue_number: pr.number,
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    body: body
-                  });
-                }
+                await createOrUpdateComment(pullRequests.data[0].number);
               } else {
                 console.log('No open pull request found for this push. Cannot post comment.');
               }

@@ -1,6 +1,11 @@
 name: Publish Any Commit
 on: [push, pull_request]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,40 +25,39 @@ jobs:
       - name: Publish packages
         run: npx pkg-pr-new publish --json output.json --comment=off
 
-      - name: Post custom comment (Pull Request)
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          output=$(cat output.json)
-          packages=$(echo "$output" | jq -r '.packages[] | "- \(.name): \(.url)"' | sed -z 's/\n/\\n/g')
-          templates=$(echo "$output" | jq -r '.templates[] | "- [\(.name)](\(.url))"' | sed -z 's/\n/\\n/g')
-          body="## Custom Publish Message\n\n### Published Packages:\n\n$packages\n\n### Templates:\n\n$templates"
+      - name: Post custom comment
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const fs = require('fs');
+            const output = JSON.parse(fs.readFileSync('output.json', 'utf8'));
 
-          pr_number=${{ github.event.pull_request.number }}
-          repo_full_name=${{ github.repository }}
+            const packages = output.packages.map(p => `- ${p.name}: ${p.url}`).join('\n');
+            const templates = output.templates.map(t => `- [${t.name}](${t.url})`).join('\n');
 
-          curl -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/$repo_full_name/issues/$pr_number/comments \
-            -d "{\"body\":\"$body\"}"
+            const body = `## Custom Publish Message
 
-      - name: Post custom comment (Push)
-        if: github.event_name == 'push'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          output=$(cat output.json)
-          packages=$(echo "$output" | jq -r '.packages[] | "- \(.name): \(.url)"' | sed -z 's/\n/\\n/g')
-          templates=$(echo "$output" | jq -r '.templates[] | "- [\(.name)](\(.url))"' | sed -z 's/\n/\\n/g')
-          body="## Custom Publish Message\n\n### Published Packages:\n\n$packages\n\n### Templates:\n\n$templates"
+            ### Published Packages:
 
-          commit_sha=${{ github.sha }}
-          repo_full_name=${{ github.repository }}
+            ${packages}
 
-          curl -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/$repo_full_name/commits/$commit_sha/comments \
-            -d "{\"body\":\"$body\"}"
+            ### Templates:
+
+            ${templates}`;
+
+            if (context.eventName === 'pull_request') {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            } else if (context.eventName === 'push') {
+              await github.rest.repos.createCommitComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.sha,
+                body: body
+              });
+            }

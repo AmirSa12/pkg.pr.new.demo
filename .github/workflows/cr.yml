@@ -82,6 +82,17 @@ jobs:
               }
             }
 
+            function logPublishInfo() {
+              console.log('\n' + '='.repeat(50));
+              console.log('Publish Information for commit:', context.sha.substring(0, 7));
+              console.log('='.repeat(50));
+              console.log('\nPublished Packages:');
+              console.log(packages);
+              console.log('\nTemplates:');
+              console.log(templates);
+              console.log('\n' + '='.repeat(50));
+            }
+
             if (context.eventName === 'pull_request') {
               await createOrUpdateComment(context.issue.number);
             } else if (context.eventName === 'push') {
@@ -95,6 +106,7 @@ jobs:
               if (pullRequests.data.length > 0) {
                 await createOrUpdateComment(pullRequests.data[0].number);
               } else {
-                console.log('No open pull request found for this push. Cannot post comment.');
+                console.log('No open pull request found for this push. Logging publish information to console:');
+                logPublishInfo();
               }
             }

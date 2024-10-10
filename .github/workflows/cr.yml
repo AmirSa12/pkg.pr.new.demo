@@ -25,7 +25,7 @@ jobs:
       - name: Publish packages
         run: npx pkg-pr-new publish --json output.json --comment=off
 
-      - name: Post custom comment
+      - name: Post or update comment
         uses: actions/github-script@v6
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
@@ -36,7 +36,7 @@ jobs:
             const packages = output.packages.map(p => `- ${p.name}: ${p.url}`).join('\n');
             const templates = output.templates.map(t => `- [${t.name}](${t.url})`).join('\n');
 
-            const body = `## Custom Publish Message
+            const body = `## Custom Publish Message for ${context.sha.substring(0, 7)}
 
             ### Published Packages:
 
@@ -46,18 +46,61 @@ jobs:
 
             ${templates}`;
 
+            const botCommentIdentifier = '## Custom Publish Message';
+
+            async function findBotComment() {
+              const comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number
+              });
+              return comments.data.find(comment => comment.body.includes(botCommentIdentifier));
+            }
+
             if (context.eventName === 'pull_request') {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-              });
+              const existingComment = await findBotComment();
+              if (existingComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: body
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: body
+                });
+              }
             } else if (context.eventName === 'push') {
-              await github.rest.repos.createCommitComment({
+              const pullRequests = await github.rest.pulls.list({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                commit_sha: context.sha,
-                body: body
+                state: 'open',
+                head: `${context.repo.owner}:${context.ref.replace('refs/heads/', '')}`
               });
+              
+              if (pullRequests.data.length > 0) {
+                const pr = pullRequests.data[0];
+                const existingComment = await findBotComment();
+                if (existingComment) {
+                  await github.rest.issues.updateComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: existingComment.id,
+                    body: body
+                  });
+                } else {
+                  await github.rest.issues.createComment({
+                    issue_number: pr.number,
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    body: body
+                  });
+                }
+              } else {
+                console.log('No open pull request found for this push. Cannot post comment.');
+              }
             }
